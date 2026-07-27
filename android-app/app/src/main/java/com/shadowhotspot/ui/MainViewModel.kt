@@ -10,11 +10,11 @@ import com.shadowhotspot.monitor.TrafficMonitor
 import com.shadowhotspot.service.SsServerService
 import com.shadowhotspot.ss.SsBinary
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.security.SecureRandom
 import android.util.Base64
@@ -140,10 +140,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun updateConfig(transform: (AppConfig) -> AppConfig) {
         val newCfg = transform(_state.value.config)
         _state.value = _state.value.copy(config = newCfg)
-        // Save synchronously so a subsequent process death (background + reopen)
-        // still has the persisted SSID/password to recover the display from —
-        // the OS redacts the live group passphrase, so recovery depends on this.
-        runBlocking { store.save(newCfg) }
+        // Persist off the UI thread. The previous implementation used
+        // `runBlocking { store.save(...) }` on the main thread, which blocks input
+        // on every keystroke and, on this ROM, could drop the final write — so the
+        // manually-typed Wi-Fi (AP) password appeared forgotten after a reopen. The
+        // OS redacts the live group passphrase, so display recovery depends entirely
+        // on this persisted value being durable.
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { store.save(newCfg) }
+        }
     }
 
     fun generatePassword() {
