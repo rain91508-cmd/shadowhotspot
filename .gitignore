@@ -1,0 +1,24 @@
+# ---- Prebuilt Android binaries (fetched by scripts/00-download-binaries.sh) ----
+dist/sslocal
+dist/ssmanager
+dist/ssserver
+dist/ssservice
+dist/ssurl
+dist/*.tar.xz
+
+# ---- Source checkout used by scripts/build-from-source.sh ----
+.src/
+
+# ---- Release artifacts produced by scripts/release.sh ----
+releases/
+
+# ---- Android build outputs ----
+android-app/**/build/
+android-app/.gradle/
+android-app/local.properties
+*.iml
+.idea/
+
+# ---- OS / editor ----
+.DS_Store
+*.swp
