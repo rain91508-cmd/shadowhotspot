@@ -100,7 +100,13 @@ fi
 # --- publish -----------------------------------------------------------------
 if command -v gh >/dev/null 2>&1 && [ "${PUBLISH:-0}" = "1" ]; then
     echo ">> Publishing GitHub release $TAG"
-    gh release create "$TAG" "$TARBALL" \
+    PUBLISH_ARGS=( "$TARBALL" )
+    # Attach the APK as its own release asset when one was built.
+    if [ -n "$ANDROID_APK" ]; then
+        PUBLISH_ARGS+=( "$ANDROID_APK" )
+        echo ">> Attaching APK: $ANDROID_APK"
+    fi
+    gh release create "$TAG" "${PUBLISH_ARGS[@]}" \
         --title "shadowhotspot $TAG" \
         --notes "Automated release ${RELEASE_NAME}." \
         --verify-tag
