@@ -171,6 +171,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * spawned once a client actually connects — see the polling loop).
      */
     fun startAll() {
+        Log.d("ShadowHotspot", "startAll invoked")
         val cfg = _state.value.config
         // The Wi-Fi AP (P2P Group Owner) starts unconditionally — it must NOT be
         // gated on the Shadowsocks password or binary (only the ssserver needs
@@ -179,8 +180,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // own and the server was a separate concern.
         val apSsid = cfg.hotspotSsid.trim()
         val apPassword = cfg.hotspotPassword
+        // Custom profile only when BOTH a name and a valid 8-63 char passphrase are
+        // given. A BLANK password means "let Android auto-generate the network" —
+        // it must NOT be treated as an error (the default SSID is pre-filled while
+        // the password starts empty, which previously blocked the AP entirely).
         val useCustom = apSsid.isNotBlank() && apPassword.length in 8..63
-        if (apSsid.isNotBlank() && !useCustom) {
+        val invalidPassword = apPassword.isNotBlank() && apPassword.length !in 8..63
+        Log.d("ShadowHotspot", "startAll: apSsid='$apSsid' useCustom=$useCustom invalidPassword=$invalidPassword")
+        if (invalidPassword) {
             _state.value = _state.value.copy(
                 lastLog = "AP password must be 8-63 characters, or leave both AP fields blank for an auto-generated network.",
             )
