@@ -20,6 +20,14 @@
         android:name="android.permission.NEARBY_WIFI_DEVICES"
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="33" />
+    <!-- On Android 12 and below the platform REQUIRES ACCESS_FINE_LOCATION to use the
+         Wi-Fi Direct (WifiP2pManager) APIs — createGroup()/requestGroupInfo() are
+         rejected with ERROR and Wi-Fi disconnect() is refused without it. The app
+         never reads the device location; this is purely a platform gate that was
+         replaced by NEARBY_WIFI_DEVICES in Android 13. -->
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="32" />
 
     <application
         android:allowBackup="true"

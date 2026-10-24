@@ -26,11 +26,14 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     private val requestNearby =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val requestLocation =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         maybeRequestNotificationPermission()
         maybeRequestNearbyPermission()
+        maybeRequestLocationPermission()
 
         setContent {
             ShadowHotspotTheme {
@@ -68,6 +71,20 @@ class MainActivity : ComponentActivity() {
             ) == PackageManager.PERMISSION_GRANTED
             if (!granted) requestNearby.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
         }
+    }
+
+    /**
+     * On Android 12 and below, Wi-Fi Direct (WifiP2pManager.createGroup) and even
+     * Wi-Fi disconnect() are refused unless the app holds ACCESS_FINE_LOCATION.
+     * Android 13 replaced this with NEARBY_WIFI_DEVICES, so only request location on
+     * the older versions. The app itself never uses the location.
+     */
+    private fun maybeRequestLocationPermission() {
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.S_V2) return
+        val granted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) requestLocation.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
     /**
