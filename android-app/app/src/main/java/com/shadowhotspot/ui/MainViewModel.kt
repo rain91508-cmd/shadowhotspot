@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.security.SecureRandom
 import android.util.Base64
+import android.util.Log
 
 /** Stop ssserver this long after the last client disconnects (power saving). */
 private const val IDLE_TIMEOUT_MS = 5_000L
@@ -171,14 +172,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun startAll() {
         val cfg = _state.value.config
-        if (cfg.password.isBlank()) {
-            _state.value = _state.value.copy(lastLog = "Set a Shadowsocks password first")
-            return
-        }
         if (!_state.value.binaryAvailable) {
+            Log.d("ShadowHotspot", "startAll: blocked — Shadowsocks binary missing")
             _state.value = _state.value.copy(lastLog = "Shadowsocks binary missing")
             return
         }
+        // NOTE: the Wi-Fi AP (P2P Group Owner) starts regardless of the Shadowsocks
+        // password. The password only gates the ssserver, which the polling loop
+        // starts lazily once a client connects. This keeps the hotspot usable even
+        // before the user configures Shadowsocks.
         // Decide whether to apply a custom AP profile. Requires a non-blank name and
         // a valid WPA2-PSK passphrase (8-63 chars). Otherwise Android auto-generates.
         val apSsid = cfg.hotspotSsid.trim()

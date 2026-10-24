@@ -72,10 +72,12 @@ object HotspotController {
     @Volatile
     private var active: Boolean = false
 
-    /** True while a start() is in flight, so the polling loop can't issue
-     *  concurrent createGroup calls that would collide with the in-progress one. */
+    /** True while a start() is in flight. Re-entry is allowed again after a short
+     *  timeout, so a stuck P2P callback can never permanently block the AP. */
     @Volatile
     private var starting: Boolean = false
+    @Volatile
+    private var startAttemptMs: Long = 0
 
     fun isStarting(): Boolean = starting
 
@@ -119,8 +121,16 @@ object HotspotController {
         onStarted: (HotspotInfo?) -> Unit,
         onFailed: (Int) -> Unit,
     ) {
-        if (starting) return
+        val now = System.currentTimeMillis()
+        // Re-entry guard: ignore only a genuinely in-flight start; allow a retry
+        // once the previous attempt is older than the watchdog window so a stuck
+        // P2P callback can never permanently block the AP.
+        if (starting && now - startAttemptMs < WATCHDOG_MS) {
+            Log.d("ShadowHotspot", "start: ignored (start already in flight)")
+            return
+        }
         starting = true
+        startAttemptMs = now
         val appCtx = context.applicationContext
         val mgr = appCtx.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
             ?: run { starting = false; return onFailed(-1) }
@@ -148,13 +158,12 @@ object HotspotController {
             val listener = object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
                     Log.d("ShadowHotspot", "createGroup onSuccess; GO is up")
-                    // Report the AP as active immediately with the known credentials,
+                    // Report the AP active immediately with known credentials,
                     // without waiting on the (sometimes slow) requestGroupInfo.
                     active = true
-                    onStarted(currentInfo(appCtx))
-                    // Best-effort: refresh cached group details for client counting.
-                    requestGroupWithRetry(mgr, ch, appCtx, onStarted, attempts = 10)
                     starting = false
+                    onStarted(currentInfo(appCtx))
+                    requestGroupWithRetry(mgr, ch, appCtx, onStarted, attempts = 10)
                 }
 
                 override fun onFailure(reason: Int) {
@@ -165,6 +174,7 @@ object HotspotController {
                     onFailed(reason)
                 }
             }
+            Log.d("ShadowHotspot", "createGroup invoked (customConfig=${config != null})")
             if (config != null) {
                 mgr.createGroup(ch, config, listener)
             } else {
@@ -172,25 +182,59 @@ object HotspotController {
             }
         }
 
-        // A previous session may have left a GO running — the P2P group survives an
-        // app kill on this ROM, so creating a new group fails with ERROR/BUSY. Tear
-        // the old group down FIRST and only then create ours, chaining on the
-        // removeGroup completion callback. A blind delay raced with teardown before.
-        Log.d("ShadowHotspot", "start: removing any existing P2P group before createGroup")
-        mgr.removeGroup(
-            ch,
-            object : WifiP2pManager.ActionListener {
-                override fun onSuccess() {
-                    Log.d("ShadowHotspot", "removeGroup onSuccess; creating fresh group")
-                    createNewGroup()
+        val desiredCustom =
+            configuredSsid.isNotBlank() && configuredPassword.length in 8..63
+
+        // This ROM keeps a Group Owner (GO) alive across app kills, so a P2P group
+        // often already exists when we're asked to start. Query it first:
+        //  - If a group is already up and we don't need specific credentials, just
+        //    adopt it — the AP is up immediately, no teardown needed.
+        //  - If we want custom credentials, tear the old group down (with a watchdog
+        //    in case removeGroup never answers) and create a fresh one.
+        Log.d("ShadowHotspot", "start: querying existing P2P group (desiredCustom=$desiredCustom)")
+        mgr.requestGroupInfo(ch) { existing ->
+            if (existing != null) {
+                if (!desiredCustom) {
+                    Log.d("ShadowHotspot", "start: adopting existing P2P group (GO already up)")
+                    group = existing
+                    active = true
+                    starting = false
+                    onStarted(currentInfo(appCtx))
+                } else {
+                    var proceeded = false
+                    val proceed = {
+                        if (!proceeded) {
+                            proceeded = true
+                            Log.d("ShadowHotspot", "start: removeGroup done/timeout -> createGroup")
+                            createNewGroup()
+                        }
+                    }
+                    Log.d("ShadowHotspot", "start: removing existing group to apply custom creds")
+                    mgr.removeGroup(
+                        ch,
+                        object : WifiP2pManager.ActionListener {
+                            override fun onSuccess() {
+                                Log.d("ShadowHotspot", "removeGroup onSuccess")
+                                proceed()
+                            }
+                            override fun onFailure(reason: Int) {
+                                Log.d("ShadowHotspot", "removeGroup onFailure reason=$reason")
+                                proceed()
+                            }
+                        },
+                    )
+                    // Watchdog: if removeGroup never calls back, proceed anyway.
+                    Handler(Looper.getMainLooper()).postDelayed(proceed, WATCHDOG_MS)
                 }
-                override fun onFailure(reason: Int) {
-                    Log.d("ShadowHotspot", "removeGroup onFailure reason=$reason; creating fresh group")
-                    createNewGroup()
-                }
-            },
-        )
+            } else {
+                Log.d("ShadowHotspot", "start: no existing group -> createGroup")
+                createNewGroup()
+            }
+        }
     }
+
+    /** Max time we wait for a P2P callback before allowing a fresh start attempt. */
+    private const val WATCHDOG_MS = 4000L
 
     /**
      * Wi-Fi Direct group SSIDs must begin with the literal `DIRECT-` prefix. If the
