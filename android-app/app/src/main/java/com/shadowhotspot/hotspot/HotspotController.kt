@@ -63,6 +63,15 @@ object HotspotController {
     @Volatile
     private var group: WifiP2pGroup? = null
 
+    /**
+     * True while the Wi-Fi Direct group (AP) is active. Driven by the
+     * start/success/failure/stop callbacks rather than the cached [group] object,
+     * so a transient null from requestGroupInfo can't make the UI or the
+     * server-gating logic think the AP is down.
+     */
+    @Volatile
+    private var active: Boolean = false
+
     /** Credentials the user requested, kept for display when the OS redacts them. */
     @Volatile
     private var configuredSsid = ""
@@ -70,8 +79,13 @@ object HotspotController {
     @Volatile
     private var configuredPassword = ""
 
-    /** True while the Wi-Fi Direct group (AP) is active. */
-    fun isActive(): Boolean = group != null
+    /**
+     * True while the Wi-Fi Direct group (AP) is active. The AP comes up
+     * independently of any connected client; only the Shadowsocks server is gated
+     * on client presence (see the ViewModel polling loop), so this must never be
+     * tied to client count.
+     */
+    fun isActive(): Boolean = active
 
     /**
      * Re-initializes the P2P manager + channel. Needed because the system keeps
@@ -143,6 +157,7 @@ object HotspotController {
 
                 override fun onFailure(reason: Int) {
                     group = null
+                    active = false
                     onFailed(reason)
                 }
             }
@@ -204,6 +219,7 @@ object HotspotController {
             // the known default address and whatever credentials we configured.
             val gw = detectHotspotAddress(context) ?: DEFAULT_GO_IP
             Log.d("ShadowHotspot", "P2P GO creds: (group info unavailable) ssid='$configuredSsid' gw=$gw")
+            active = true
             onStarted(HotspotInfo(configuredSsid, configuredPassword, gw))
             return
         }
@@ -214,6 +230,7 @@ object HotspotController {
                 }, 300)
             } else {
                 group = g
+                active = true
                 onStarted(currentInfo(context))
             }
         }
@@ -235,6 +252,7 @@ object HotspotController {
             }
         }
         group = null
+        active = false
     }
 
     /**
@@ -250,7 +268,9 @@ object HotspotController {
             return@suspendCancellableCoroutine
         }
         mgr.requestGroupInfo(ch) { g ->
-            group = g
+            // Only cache the group when present; a transient null must NOT clear
+            // our active state (see [isActive] / the ViewModel polling loop).
+            if (g != null) group = g
             cont.resume(g?.clientList?.size ?: 0)
         }
     }
