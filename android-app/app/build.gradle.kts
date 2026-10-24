@@ -12,8 +12,17 @@ android {
         applicationId = "com.shadowhotspot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // Derive version from the repo-root VERSION file so each release is a
+        // distinct, upgradeable build (avoids "reinstall same version" on adb install).
+        val versionNameValue = file(rootDir, "../VERSION").readText().trim()
+        val versionCodeValue = versionNameValue.split('.').let { p ->
+            val m = p.getOrNull(0)?.toIntOrNull() ?: 0
+            val n = p.getOrNull(1)?.toIntOrNull() ?: 0
+            val x = p.getOrNull(2)?.toIntOrNull() ?: 0
+            m * 10000 + n * 100 + x
+        }
+        versionCode = versionCodeValue
+        versionName = versionNameValue
 
         // We only bundle the arm64 ssserver binary.
         ndk {

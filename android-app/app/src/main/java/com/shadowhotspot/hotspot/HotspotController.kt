@@ -150,12 +150,14 @@ object HotspotController {
             val config = buildP2pConfigSafe(configuredSsid, configuredPassword)
             val listener = object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
+                    Log.d("ShadowHotspot", "createGroup onSuccess; querying group info")
                     // The group may take a moment to be fully populated; retry
                     // requestGroupInfo a few times before giving up.
                     requestGroupWithRetry(mgr, ch, context, onStarted, attempts = 10)
                 }
 
                 override fun onFailure(reason: Int) {
+                    Log.d("ShadowHotspot", "createGroup onFailure reason=$reason")
                     group = null
                     active = false
                     onFailed(reason)
@@ -271,6 +273,7 @@ object HotspotController {
             // Only cache the group when present; a transient null must NOT clear
             // our active state (see [isActive] / the ViewModel polling loop).
             if (g != null) group = g
+            Log.d("ShadowHotspot", "clientCount=${g?.clientList?.size ?: 0} active=$active")
             cont.resume(g?.clientList?.size ?: 0)
         }
     }
