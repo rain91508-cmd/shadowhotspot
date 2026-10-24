@@ -157,14 +157,19 @@ object HotspotController {
         val desiredCustom =
             configuredSsid.isNotBlank() && configuredPassword.length in 8..63
 
-        // Creates the group, retrying transient hard errors (ERROR/BUSY) which this
-        // ROM returns while the radio is still busy as a Wi-Fi station.
+        // Creates the group. If the custom-credential config is rejected (this ROM
+        // returns ERROR=0 for a WifiP2pConfig carrying networkName/passphrase), we
+        // permanently fall back to the plain createGroup() which lets Android
+        // auto-generate the network — the AP still comes up, just with OS-chosen
+        // credentials that we read back afterwards.
+        var usedPlainFallback = false
         var createNewGroup: (Int) -> Unit = {}
         createNewGroup = { attempt ->
-            val config = buildP2pConfigSafe(configuredSsid, configuredPassword)
+            val config = if (usedPlainFallback) null
+            else buildP2pConfigSafe(configuredSsid, configuredPassword)
             val listener = object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
-                    Log.d("ShadowHotspot", "createGroup onSuccess; GO is up")
+                    Log.d("ShadowHotspot", "createGroup onSuccess; GO is up (plain=${usedPlainFallback})")
                     // Report the AP active immediately with known credentials,
                     // without waiting on the (sometimes slow) requestGroupInfo.
                     active = true
@@ -174,7 +179,15 @@ object HotspotController {
                 }
 
                 override fun onFailure(reason: Int) {
-                    Log.d("ShadowHotspot", "createGroup onFailure reason=$reason (attempt ${attempt + 1})")
+                    Log.d("ShadowHotspot", "createGroup onFailure reason=$reason (attempt ${attempt + 1}, plain=$usedPlainFallback)")
+                    if (config != null) {
+                        // Custom credentials were rejected — retry once with plain
+                        // createGroup so the AP still comes up.
+                        Log.d("ShadowHotspot", "custom createGroup rejected; falling back to plain createGroup")
+                        usedPlainFallback = true
+                        Handler(Looper.getMainLooper()).postDelayed({ createNewGroup(0) }, 800)
+                        return
+                    }
                     val transient = reason == WifiP2pManager.ERROR || reason == WifiP2pManager.BUSY
                     if (transient && attempt < 3) {
                         Handler(Looper.getMainLooper()).postDelayed({
