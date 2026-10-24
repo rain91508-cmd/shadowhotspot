@@ -13,9 +13,6 @@
          set its SSID/password via WifiP2pConfig.Builder. -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    <!-- Best-effort: lets us read back auto-generated creds when custom ones aren't set.
-         The custom-SSID feature does NOT depend on this (it uses NEARBY_WIFI_DEVICES). -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- On Android 13+, createGroup() with a custom WifiP2pConfig (custom SSID/password)
          requires NEARBY_WIFI_DEVICES. neverForLocation asserts we don't use Wi-Fi for
          GPS, so the permission can be granted without ACCESS_FINE_LOCATION. -->

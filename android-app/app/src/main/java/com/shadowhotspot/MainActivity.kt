@@ -24,15 +24,12 @@ class MainActivity : ComponentActivity() {
 
     private val requestNotif =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    private val requestLocation =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     private val requestNearby =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         maybeRequestNotificationPermission()
-        maybeRequestLocationPermission()
         maybeRequestNearbyPermission()
 
         setContent {
@@ -59,15 +56,6 @@ class MainActivity : ComponentActivity() {
             ) == PackageManager.PERMISSION_GRANTED
             if (!granted) requestNotif.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-    }
-
-    private fun maybeRequestLocationPermission() {
-        // ACCESS_FINE_LOCATION helps read the auto-generated hotspot
-        // SSID/password. Without it the AP still starts, but credentials may be empty.
-        val granted = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!granted) requestLocation.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
     private fun maybeRequestNearbyPermission() {
