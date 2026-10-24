@@ -172,21 +172,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun startAll() {
         val cfg = _state.value.config
-        if (!_state.value.binaryAvailable) {
-            Log.d("ShadowHotspot", "startAll: blocked — Shadowsocks binary missing")
-            _state.value = _state.value.copy(lastLog = "Shadowsocks binary missing")
-            return
-        }
-        // NOTE: the Wi-Fi AP (P2P Group Owner) starts regardless of the Shadowsocks
-        // password. The password only gates the ssserver, which the polling loop
-        // starts lazily once a client connects. This keeps the hotspot usable even
-        // before the user configures Shadowsocks.
-        // Decide whether to apply a custom AP profile. Requires a non-blank name and
-        // a valid WPA2-PSK passphrase (8-63 chars). Otherwise Android auto-generates.
+        // The Wi-Fi AP (P2P Group Owner) starts unconditionally — it must NOT be
+        // gated on the Shadowsocks password or binary (only the ssserver needs
+        // those, and it is started lazily by the polling loop once a client
+        // connects). This mirrors the 0.3.x behaviour where the AP came up on its
+        // own and the server was a separate concern.
         val apSsid = cfg.hotspotSsid.trim()
         val apPassword = cfg.hotspotPassword
         val useCustom = apSsid.isNotBlank() && apPassword.length in 8..63
-        if (apSsid.isNotBlank() && apPassword.length !in 8..63) {
+        if (apSsid.isNotBlank() && !useCustom) {
             _state.value = _state.value.copy(
                 lastLog = "AP password must be 8-63 characters, or leave both AP fields blank for an auto-generated network.",
             )
@@ -221,7 +215,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 )
             },
         )
-        SsServerService.startIdle(getApplication())
+        // Shadowsocks server is only started if its binary is present. It is not
+        // required for the AP itself, so a missing binary must not block the AP.
+        if (_state.value.binaryAvailable) {
+            SsServerService.startIdle(getApplication())
+        } else {
+            Log.d("ShadowHotspot", "startAll: Shadowsocks binary missing (AP still started)")
+            _state.value = _state.value.copy(lastLog = "Wi-Fi AP started; Shadowsocks binary missing so the server is off.")
+        }
     }
 
     /** Master OFF: stop the server and tear down the AP. */

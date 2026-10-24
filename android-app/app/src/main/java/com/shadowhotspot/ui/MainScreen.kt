@@ -286,7 +286,11 @@ private fun ControlCard(
     onStopAll: () -> Unit,
 ) {
     val running = state.hotspotActive || state.serverRunning
-    val canStart = state.config.password.isNotBlank() && state.binaryAvailable
+    // The Wi-Fi AP must be startable on its own. The Shadowsocks password only
+    // gates the *server* (started lazily when a client connects), so it must NOT
+    // disable the Start button — otherwise a blank password (e.g. after a fresh
+    // install) makes the whole app appear dead.
+    val canStart = true
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
