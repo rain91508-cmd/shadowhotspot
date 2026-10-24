@@ -72,6 +72,13 @@ object HotspotController {
     @Volatile
     private var active: Boolean = false
 
+    /** True while a start() is in flight, so the polling loop can't issue
+     *  concurrent createGroup calls that would collide with the in-progress one. */
+    @Volatile
+    private var starting: Boolean = false
+
+    fun isStarting(): Boolean = starting
+
     /** Credentials the user requested, kept for display when the OS redacts them. */
     @Volatile
     private var configuredSsid = ""
@@ -112,9 +119,11 @@ object HotspotController {
         onStarted: (HotspotInfo?) -> Unit,
         onFailed: (Int) -> Unit,
     ) {
+        if (starting) return
+        starting = true
         val appCtx = context.applicationContext
         val mgr = appCtx.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
-            ?: return onFailed(-1)
+            ?: run { starting = false; return onFailed(-1) }
         p2p = mgr
 
         // Remember the credentials the user asked for so we can display them even
@@ -125,8 +134,8 @@ object HotspotController {
         configuredPassword = password ?: ""
 
         // Drop any active Wi-Fi *client* (STA) link. This device can't do STA+GO
-        // concurrency, and we must NOT fully disable the Wi-Fi radio (P2P needs
-        // the chip). disconnect() removes the association; if the OS immediately
+        // concurrency reliably, and we must NOT fully disable the Wi-Fi radio (P2P
+        // needs the chip). disconnect() removes the association; if the OS
         // auto-rejoins, the user must forget the network in Settings.
         val wm = appCtx.getSystemService(Context.WIFI_SERVICE) as? WifiManager
         runCatching { wm?.disconnect() }
@@ -134,32 +143,25 @@ object HotspotController {
         val ch = channel ?: mgr.initialize(appCtx, Looper.getMainLooper(), null)
         channel = ch
 
-        // A previous session may have left a GO running (the P2P group survives an
-        // app kill on this ROM). Creating a new group then fails with BUSY, so tear
-        // down any existing group first, then create ours.
-        runCatching {
-            mgr.removeGroup(
-                ch,
-                object : WifiP2pManager.ActionListener {
-                    override fun onSuccess() {}
-                    override fun onFailure(reason: Int) {}
-                },
-            )
-        }
-        Handler(Looper.getMainLooper()).postDelayed({
+        val createNewGroup: () -> Unit = {
             val config = buildP2pConfigSafe(configuredSsid, configuredPassword)
             val listener = object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
-                    Log.d("ShadowHotspot", "createGroup onSuccess; querying group info")
-                    // The group may take a moment to be fully populated; retry
-                    // requestGroupInfo a few times before giving up.
-                    requestGroupWithRetry(mgr, ch, context, onStarted, attempts = 10)
+                    Log.d("ShadowHotspot", "createGroup onSuccess; GO is up")
+                    // Report the AP as active immediately with the known credentials,
+                    // without waiting on the (sometimes slow) requestGroupInfo.
+                    active = true
+                    onStarted(currentInfo(appCtx))
+                    // Best-effort: refresh cached group details for client counting.
+                    requestGroupWithRetry(mgr, ch, appCtx, onStarted, attempts = 10)
+                    starting = false
                 }
 
                 override fun onFailure(reason: Int) {
                     Log.d("ShadowHotspot", "createGroup onFailure reason=$reason")
                     group = null
                     active = false
+                    starting = false
                     onFailed(reason)
                 }
             }
@@ -168,7 +170,26 @@ object HotspotController {
             } else {
                 mgr.createGroup(ch, listener)
             }
-        }, 600)
+        }
+
+        // A previous session may have left a GO running — the P2P group survives an
+        // app kill on this ROM, so creating a new group fails with ERROR/BUSY. Tear
+        // the old group down FIRST and only then create ours, chaining on the
+        // removeGroup completion callback. A blind delay raced with teardown before.
+        Log.d("ShadowHotspot", "start: removing any existing P2P group before createGroup")
+        mgr.removeGroup(
+            ch,
+            object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    Log.d("ShadowHotspot", "removeGroup onSuccess; creating fresh group")
+                    createNewGroup()
+                }
+                override fun onFailure(reason: Int) {
+                    Log.d("ShadowHotspot", "removeGroup onFailure reason=$reason; creating fresh group")
+                    createNewGroup()
+                }
+            },
+        )
     }
 
     /**
