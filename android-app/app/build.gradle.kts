@@ -14,7 +14,7 @@ android {
         targetSdk = 35
         // Derive version from the repo-root VERSION file so each release is a
         // distinct, upgradeable build (avoids "reinstall same version" on adb install).
-        val versionNameValue = file(rootDir, "../VERSION").readText().trim()
+        val versionNameValue = rootDir.resolve("../VERSION").readText().trim()
         val versionCodeValue = versionNameValue.split('.').let { p ->
             val m = p.getOrNull(0)?.toIntOrNull() ?: 0
             val n = p.getOrNull(1)?.toIntOrNull() ?: 0
