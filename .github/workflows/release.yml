@@ -42,11 +42,19 @@ jobs:
 
       - name: Configure APK signing
         env:
-          KS_FILE: ${{ github.workspace }}/android-app/release-keystore.jks
+          KS_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || 'shadowhotspot' }}
           KS_ALIAS: ${{ secrets.KEY_ALIAS || 'shadowhotspot' }}
           KS_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'shadowhotspot' }}
         run: |
+          if [ -n "$KS_BASE64" ]; then
+            KS_FILE="$RUNNER_TEMP/release-keystore.jks"
+            echo "$KS_BASE64" | base64 -d > "$KS_FILE"
+            echo ">> Using keystore from KEYSTORE_BASE64 secret"
+          else
+            KS_FILE="${{ github.workspace }}/android-app/release-keystore.jks"
+            echo ">> Using committed keystore (set KEYSTORE_BASE64 secret to keep the key private)"
+          fi
           echo "KEYSTORE_FILE=${KS_FILE}" >> "$GITHUB_ENV"
           echo "KEYSTORE_PASSWORD=${KS_PASSWORD}" >> "$GITHUB_ENV"
           echo "KEY_ALIAS=${KS_ALIAS}" >> "$GITHUB_ENV"
