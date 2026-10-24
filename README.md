@@ -38,6 +38,21 @@ restricted network.
 
 ---
 
+## Chaining an additional proxy (VPN)
+
+Because the hotspot **phone itself is the exit node** for all client traffic, you can
+chain a second proxy simply by **running a VPN app on the hotspot provider phone**.
+Android routes *all* of the phone's outbound traffic — including the Shadowsocks exit
+and the NAT‑forwarded hotspot traffic — through the active VPN tunnel. So:
+
+1. Start Shadowsocks / the Wi‑Fi hotspot as normal (Path A or B).
+2. Turn on any VPN app on the same phone.
+
+Every connected client's traffic then flows: client → hotspot → Shadowsocks → **VPN**
+→ Internet. No extra configuration on the clients or in this project is required.
+
+---
+
 ## Two ways to run it — pick one
 
 ### Path A — Transparent proxy (recommended, **requires root**)

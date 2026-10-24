@@ -21,6 +21,34 @@ android {
         }
     }
 
+    // --- Release signing ----------------------------------------------------
+    // The release APK is signed only when a keystore is supplied (CI or local).
+    // Credentials are read from environment variables first, then from gradle
+    // properties / local.properties. Without these, `assembleRelease` produces
+    // an *unsigned* APK, which Android refuses to install.
+    val keystoreFile = run {
+        val path = System.getenv("KEYSTORE_FILE")
+            ?: project.findProperty("KEYSTORE_FILE")?.toString()
+        path?.let { file(it) }?.takeIf { it.exists() }
+    }
+
+    signingConfigs {
+        if (keystoreFile != null) {
+            create("release") {
+                storeFile = keystoreFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                    ?: project.findProperty("KEYSTORE_PASSWORD")?.toString()
+                    ?: error("KEYSTORE_PASSWORD is required when KEYSTORE_FILE is set")
+                keyAlias = System.getenv("KEY_ALIAS")
+                    ?: project.findProperty("KEY_ALIAS")?.toString()
+                    ?: error("KEY_ALIAS is required when KEYSTORE_FILE is set")
+                keyPassword = System.getenv("KEY_PASSWORD")
+                    ?: project.findProperty("KEY_PASSWORD")?.toString()
+                    ?: error("KEY_PASSWORD is required when KEYSTORE_FILE is set")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -28,6 +56,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (keystoreFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

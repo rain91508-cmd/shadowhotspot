@@ -32,6 +32,18 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
+      - name: Configure APK signing
+        env:
+          KS_FILE: ${{ github.workspace }}/android-app/release-keystore.jks
+          KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD || 'shadowhotspot' }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS || 'shadowhotspot' }}
+          KS_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'shadowhotspot' }}
+        run: |
+          echo "KEYSTORE_FILE=${KS_FILE}" >> "$GITHUB_ENV"
+          echo "KEYSTORE_PASSWORD=${KS_PASSWORD}" >> "$GITHUB_ENV"
+          echo "KEY_ALIAS=${KS_ALIAS}" >> "$GITHUB_ENV"
+          echo "KEY_PASSWORD=${KS_KEY_PASSWORD}" >> "$GITHUB_ENV"
+
       - name: Build release tarball (+ APK)
         env:
           BUILD_ANDROID: 1
