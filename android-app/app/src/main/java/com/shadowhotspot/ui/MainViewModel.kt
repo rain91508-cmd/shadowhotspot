@@ -1,6 +1,9 @@
 package com.shadowhotspot.ui
 
 import android.app.Application
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.shadowhotspot.data.AppConfig
@@ -190,6 +193,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (invalidPassword) {
             _state.value = _state.value.copy(
                 lastLog = "AP password must be 8-63 characters, or leave both AP fields blank for an auto-generated network.",
+            )
+            return
+        }
+        // The platform silently refuses Wi-Fi Direct (createGroup returns ERROR)
+        // when the required permission is missing, which used to look like an
+        // unexplained "not starting". Detect it here and tell the user exactly
+        // what to do instead of failing quietly.
+        val missingPermission = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+                "android.permission.NEARBY_WIFI_DEVICES"
+            else ->
+                "android.permission.ACCESS_FINE_LOCATION"
+        }.let { perm ->
+            ContextCompat.checkSelfPermission(getApplication(), perm) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missingPermission) {
+            val permName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                "Nearby devices" else "Location"
+            Log.d("ShadowHotspot", "startAll: missing $permName permission")
+            _state.value = _state.value.copy(
+                lastLog = "Permission required: allow \"$permName\" for ShadowHotspot, then tap Start. " +
+                    "Android blocks Wi-Fi hotspot creation without it.",
             )
             return
         }

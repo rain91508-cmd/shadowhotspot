@@ -29,6 +29,14 @@ class MainActivity : ComponentActivity() {
     private val requestLocation =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    override fun onResume() {
+        super.onResume()
+        // Re-check on every foreground so a permission granted in Settings takes
+        // effect immediately (the hotspot silently fails without it).
+        maybeRequestNearbyPermission()
+        maybeRequestLocationPermission()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         maybeRequestNotificationPermission()
