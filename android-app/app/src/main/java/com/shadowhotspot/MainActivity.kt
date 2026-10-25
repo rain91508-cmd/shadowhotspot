@@ -1,6 +1,7 @@
 package com.shadowhotspot
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -13,6 +14,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -36,7 +38,11 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             val action = pendingStart
             pendingStart = null
-            if (granted) action?.invoke()
+            if (granted) {
+                action?.invoke()
+            } else {
+                showPermissionDeniedHelp()
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -99,7 +105,63 @@ class MainActivity : ComponentActivity() {
             return
         }
         pendingStart = start
-        requestHotspotPerm.launch(perm)
+        // On Android 12 and below the system demands ACCESS_FINE_LOCATION, which
+        // looks alarming for a hotspot app. Explain why before the system dialog
+        // appears, so the user doesn't mistake it for location tracking.
+        if (perm == Manifest.permission.ACCESS_FINE_LOCATION) {
+            showLocationRationale { requestHotspotPerm.launch(perm) }
+        } else {
+            requestHotspotPerm.launch(perm)
+        }
+    }
+
+    /** Explains why Android requires the Location permission, then requests it. */
+    private fun showLocationRationale(onContinue: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle("Why is Location needed?")
+            .setMessage(
+                "On Android 12 and older, the system requires the \"Location\" " +
+                    "permission for any app that creates a Wi-Fi hotspot.\n\n" +
+                    "ShadowHotspot does not read, store, or share your location. " +
+                    "Android only uses this permission to allow the hotspot " +
+                    "(Wi-Fi Direct) network to be created.\n\n" +
+                    "Tap Continue and allow Location to start the hotspot."
+            )
+            .setPositiveButton("Continue") { _, _ -> onContinue() }
+            .setNegativeButton("Cancel") { _, _ -> pendingStart = null }
+            .setOnCancelListener { pendingStart = null }
+            .show()
+    }
+
+    /**
+     * If the permission was denied and the system won't show the dialog again,
+     * point the user at the app's settings page instead of doing nothing.
+     */
+    private fun showPermissionDeniedHelp() {
+        val perm = requiredHotspotPermission()
+        // If the system will still show a dialog, the user can simply press Start again.
+        if (ActivityCompat.shouldShowRequestPermissionRationale(this, perm)) return
+        AlertDialog.Builder(this)
+            .setTitle("Permission required")
+            .setMessage(
+                "The hotspot cannot start without this permission. " +
+                    "Enable it in Settings > Apps > ShadowHotspot > Permissions, " +
+                    "then tap Start again."
+            )
+            .setPositiveButton("Open settings") { _, _ ->
+                try {
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:$packageName"),
+                        )
+                    )
+                } catch (_: Throwable) {
+                    // Ignore — user can navigate manually.
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     /**
