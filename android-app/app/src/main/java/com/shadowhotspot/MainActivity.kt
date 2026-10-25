@@ -24,24 +24,24 @@ class MainActivity : ComponentActivity() {
 
     private val requestNotif =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    private val requestNearby =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    private val requestLocation =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
-    override fun onResume() {
-        super.onResume()
-        // Re-check on every foreground so a permission granted in Settings takes
-        // effect immediately (the hotspot silently fails without it).
-        maybeRequestNearbyPermission()
-        maybeRequestLocationPermission()
-    }
+    /**
+     * Action to run once the hotspot permission is granted while the user is
+     * starting the hotspot. Kept here so the permission prompt appears exactly
+     * when Start is pressed, not at app launch.
+     */
+    private var pendingStart: (() -> Unit)? = null
+
+    private val requestHotspotPerm =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val action = pendingStart
+            pendingStart = null
+            if (granted) action?.invoke()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         maybeRequestNotificationPermission()
-        maybeRequestNearbyPermission()
-        maybeRequestLocationPermission()
 
         setContent {
             ShadowHotspotTheme {
@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
                     onConfigChange = { transform -> vm.updateConfig(transform) },
                     onGeneratePassword = vm::generatePassword,
                     onGenerateApPassword = vm::generateApPassword,
-                    onStartAll = vm::startAll,
+                    onStartAll = { startWithPermission(vm::startAll) },
                     onStopAll = vm::stopAll,
                 )
             }
@@ -69,30 +69,37 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun maybeRequestNearbyPermission() {
-        // On Android 13+ (API 33+), startLocalOnlyHotspot() requires the
-        // NEARBY_WIFI_DEVICES runtime permission, otherwise the system throws and
-        // the app crashes. This is the fix for the "enable Wi-Fi" crash.
+    /**
+     * The permission Android requires to create a Wi-Fi hotspot on this OS version:
+     *  - Android 13+ (API 33+): NEARBY_WIFI_DEVICES
+     *  - Android 12 and below:   ACCESS_FINE_LOCATION (the platform gates Wi-Fi
+     *    Direct / createGroup on it; NEARBY_WIFI_DEVICES didn't exist yet).
+     * ACCESS_FINE_LOCATION is declared with maxSdkVersion="32", so newer phones
+     * never ask for it; it is still declared because a runtime permission can only
+     * be requested if it appears in the manifest.
+     */
+    private fun requiredHotspotPermission(): String =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val granted = ContextCompat.checkSelfPermission(
-                this, Manifest.permission.NEARBY_WIFI_DEVICES
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!granted) requestNearby.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+            Manifest.permission.NEARBY_WIFI_DEVICES
+        } else {
+            Manifest.permission.ACCESS_FINE_LOCATION
         }
-    }
 
     /**
-     * On Android 12 and below, Wi-Fi Direct (WifiP2pManager.createGroup) and even
-     * Wi-Fi disconnect() are refused unless the app holds ACCESS_FINE_LOCATION.
-     * Android 13 replaced this with NEARBY_WIFI_DEVICES, so only request location on
-     * the older versions. The app itself never uses the location.
+     * Starts the hotspot, requesting the required permission first — lazily, only
+     * when the user presses Start and only on the Android versions that need it.
      */
-    private fun maybeRequestLocationPermission() {
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.S_V2) return
+    private fun startWithPermission(start: () -> Unit) {
+        val perm = requiredHotspotPermission()
         val granted = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.ACCESS_FINE_LOCATION
+            this, perm
         ) == PackageManager.PERMISSION_GRANTED
-        if (!granted) requestLocation.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (granted) {
+            start()
+            return
+        }
+        pendingStart = start
+        requestHotspotPerm.launch(perm)
     }
 
     /**
